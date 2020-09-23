@@ -10,4 +10,11 @@ int main() {
 	create_node("aaaaaaaaaaaaaaa");
 
 	print_tree();
+
+	clean_tree();
+
+	create_node("teeest");
+	create_node("letzter test");
+
+	print_tree();
 }

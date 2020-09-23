@@ -28,10 +28,12 @@ const char* path_of_inode(fuse_ino_t inode);
 
 void clean_old_nodes();
 
-void clean_tree(); // TODO
+void clean_tree();
 
 #ifndef NDEBUG
+
 void print_tree();
+
 #endif
 
 #endif

@@ -271,6 +271,25 @@ void clean_old_nodes() {
 	pthread_mutex_unlock(&tree_mutex);
 }
 
+void clean_tree() {
+	pthread_mutex_lock(&tree_mutex);
+
+	for (struct node* cur = ll_start; cur != NULL; ) {
+		struct node* next = cur->next;
+
+		free(cur->url);
+		free(cur);
+
+		cur = next;
+	}
+
+	ll_start = NULL;
+	ll_end = NULL;
+	tree = NULL;
+
+	pthread_mutex_unlock(&tree_mutex);
+}
+
 #ifndef NDEBUG
 
 #include <stdio.h>
