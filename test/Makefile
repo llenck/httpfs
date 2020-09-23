@@ -5,3 +5,6 @@ CFLAGS ?= -Wall -Werror -Og -g
 
 tree-test: ../tree.c ../tree.h tree-test.c
 	$(CC) $(CFLAGS) $(FUSE_CFLAGS) -I ../ ../tree.c tree-test.c -o $@
+
+clean:
+	$(RM) tree-test
