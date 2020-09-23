@@ -81,6 +81,7 @@ static void delete_from_bintree(struct node* nod) {
 	}
 }
 
+// returns 0 for success, -1 for error (hash collision), and 1 for duplicate entry
 static int insert_to_bintree(struct node* nod) {
 	nod->left = NULL;
 	nod->right = NULL;
@@ -96,8 +97,7 @@ static int insert_to_bintree(struct node* nod) {
 
 	while (1) {
 		if (cur->inode == nod->inode) {
-			// prevent hash collisions
-			return -1;
+			return strcmp(cur->url, nod->url) == 0? 1 : -1;
 		}
 		else if (cur->inode > nod->inode) {
 			next = &cur->left;
@@ -196,7 +196,9 @@ static fuse_ino_t hash_url(const unsigned char* url) {
 	return ret;
 }
 
-int create_node(const char* url) {
+int save_url(const char* url, fuse_ino_t* out) {
+	int ret = 0;
+
 	struct node* new_nod = malloc(sizeof(*new_nod));
 	if (new_nod == NULL) {
 		return -1;
@@ -204,7 +206,8 @@ int create_node(const char* url) {
 
 	new_nod->url = strdup(url);
 	if (new_nod->url == NULL) {
-		goto err_nod_cleanup;
+		ret = -1;
+		goto nod_cleanup;
 	}
 
 	new_nod->inode = hash_url((const unsigned char*)url);
@@ -212,12 +215,26 @@ int create_node(const char* url) {
 
 	pthread_mutex_lock(&tree_mutex);
 
-	// insert to binary tree at first, because that can fail, while the linked list
-	// append always succeeds
-	if (insert_to_bintree(new_nod) < 0) {
+	// insert to the binary tree first, because that can fail, while the linked
+	// list append always succeeds
+	int tmp = insert_to_bintree(new_nod);
+	if (tmp < 0) {
+		// hash collision; clean up and return an error
 		pthread_mutex_unlock(&tree_mutex);
 
-		goto err_full_cleanup;
+		ret = -1;
+		goto full_cleanup;
+	}
+	else if (tmp > 0) {
+		// duplicate entry; clean up, but set *out and don't return any error
+		pthread_mutex_unlock(&tree_mutex);
+
+		if (out != NULL) {
+			*out = new_nod->inode;
+		}
+
+		ret = 0;
+		goto full_cleanup;
 	}
 
 	append_to_ll(new_nod);
@@ -226,14 +243,18 @@ int create_node(const char* url) {
 
 	pthread_mutex_unlock(&tree_mutex);
 
+	if (out != NULL) {
+		*out = new_nod->inode;
+	}
+
 	return 0;
 
-err_full_cleanup:
+full_cleanup:
 	free(new_nod->url);
-err_nod_cleanup:
+nod_cleanup:
 	free(new_nod);
 
-	return -1;
+	return ret;
 }
 
 const char* path_of_inode(fuse_ino_t inode) {

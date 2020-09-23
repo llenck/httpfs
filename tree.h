@@ -19,8 +19,8 @@ struct node {
 extern int node_count; // only do timeouts if > 0
 
 // the path gets copied, so don't worry about memory management
-// return value: 0 on success, -1 on not enough memory left or duplicate url hash
-int create_node(const char* url);
+// return value: 0 on success, -1 on not enough memory
+int save_url(const char* url, fuse_ino_t* out_ino);
 
 // returns the path associated with an inode number, as saved in the tree,
 // or NULL if search failed
