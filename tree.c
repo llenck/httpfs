@@ -196,7 +196,7 @@ static fuse_ino_t hash_url(const unsigned char* url) {
 	return ret;
 }
 
-int save_url(const char* url, fuse_ino_t* out) {
+int save_url(const char* url, fuse_ino_t* out, fuse_ino_t parent_ino) {
 	int ret = 0;
 
 	struct node* new_nod = malloc(sizeof(*new_nod));
@@ -211,6 +211,7 @@ int save_url(const char* url, fuse_ino_t* out) {
 	}
 
 	new_nod->inode = hash_url((const unsigned char*)url);
+	new_nod->parent_inode = parent_ino;
 	new_nod->del_at = time(NULL) + 1200; // delete mapping after 20 minutes
 
 	pthread_mutex_lock(&tree_mutex);
@@ -257,7 +258,7 @@ nod_cleanup:
 	return ret;
 }
 
-const char* path_of_inode(fuse_ino_t inode) {
+const char* get_inode_info(fuse_ino_t inode, fuse_ino_t* par_ino_out) {
 	pthread_mutex_lock(&tree_mutex);
 
 	struct node* t = tree;
@@ -265,6 +266,8 @@ const char* path_of_inode(fuse_ino_t inode) {
 	while (t) {
 		if (t->inode == inode) {
 			pthread_mutex_unlock(&tree_mutex);
+
+			*par_ino_out = t->parent_inode;
 			return t->url;
 		}
 		else if (t->inode > inode) {

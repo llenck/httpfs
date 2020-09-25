@@ -3,11 +3,11 @@ FUSE_LIBS := $(shell pkg-config fuse3 --libs)
 
 CFLAGS ?= -Wall -Wextra -O3 -DNDEBUG
 
-httpfs: httpfs.o tree.o
-	$(CC) $(CFLAGS) $(FUSE_LIBS) httpfs.o tree.o -o httpfs
+httpfs: httpfs.o tree.o const-inode-parsing.o
+	$(CC) $(CFLAGS) $(FUSE_LIBS) httpfs.o tree.o const-inode-parsing.o -o httpfs
 
 %.o: %.c
 	$(CC) $(CFLAGS) $(FUSE_CFLAGS) -c $< -o $@
 
 clean:
-	$(RM) httpfs httpfs.o tree.o
+	$(RM) httpfs httpfs.o tree.o const-inode-parsing.o
