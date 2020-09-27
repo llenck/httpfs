@@ -27,13 +27,13 @@ void httpfs_fill_stats(struct stat* st, fuse_ino_t ino, fuse_ino_t par_ino) {
 		switch (par_ino) {
 		case POST_INODE:
 		case PUT_INODE:
-			st->st_mode = S_IFREG | 0555;
+			st->st_mode = S_IFREG | 0755;
 			break;
 
 		case GET_INODE:
 		case HEAD_INODE:
 		case DELETE_INODE:
-			st->st_mode = S_IFREG | 0755;
+			st->st_mode = S_IFREG | 0555;
 			break;
 
 		default:
