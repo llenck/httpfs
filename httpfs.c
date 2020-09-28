@@ -143,13 +143,15 @@ void httpfs_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
 			dirbuf_add(req, &b, "post", POST_INODE) < 0 ||
 			dirbuf_add(req, &b, "head", HEAD_INODE) < 0 ||
 			dirbuf_add(req, &b, "put", PUT_INODE) < 0 ||
-			dirbuf_add(req, &b, "delete", DELETE_INODE) < 0)
+			dirbuf_add(req, &b, "delete", DELETE_INODE) < 0 ||
+			dirbuf_add(req, &b, ".", ino) < 0 ||
+			dirbuf_add(req, &b, "..", ino) < 0)
 		{
 			fuse_reply_err(req, ENOMEM);
 			return;
 		}
 
-		// off should always be positive
+		// off should always be positive, so cast to size_t
 		if ((size_t)off >= b.size) {
 			fuse_reply_buf(req, NULL, 0);
 		}
@@ -160,7 +162,25 @@ void httpfs_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
 		free(b.p);
 	}
 	else if (inode_to_tld(ino) != NULL) {
-		fuse_reply_err(req, ENOSYS);
+		struct dirbuf b = { NULL, 0 };
+
+		if (
+			dirbuf_add(req, &b, ".", ino) < 0 ||
+			dirbuf_add(req, &b, "..", FUSE_ROOT_ID) < 0)
+		{
+			fuse_reply_err(req, ENOMEM);
+			return;
+		}
+
+		// off should always be positive, so cast to size_t
+		if ((size_t)off >= b.size) {
+			fuse_reply_buf(req, NULL, 0);
+		}
+		else {
+			fuse_reply_buf(req, b.p + off, MIN(b.size - off, size));
+		}
+
+		free(b.p);
 	}
 	else {
 		if (get_inode_info(ino, NULL) != NULL) {
