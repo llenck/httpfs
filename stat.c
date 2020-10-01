@@ -84,9 +84,16 @@ void httpfs_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info* fi) {
 
 	fuse_ino_t par_ino;
 
-	if (get_inode_info(ino, &par_ino) != NULL) {
-		fuse_reply_err(req, ENOENT);
-		return;
+	// figure out where the inode is from
+	if (get_inode_info(ino, &par_ino) == NULL) {
+		if (inode_to_tld(ino) != NULL) {
+			par_ino = FUSE_ROOT_ID;
+		}
+		else {
+			// we don't know this inode
+			fuse_reply_err(req, ENOENT);
+			return;
+		}
 	}
 
 	struct stat st;
@@ -188,7 +195,5 @@ void httpfs_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
 		else {
 			fuse_reply_err(req, ENOENT);
 		}
-
-		return;
 	}
 }
