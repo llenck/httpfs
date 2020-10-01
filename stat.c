@@ -86,7 +86,12 @@ void httpfs_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info* fi) {
 
 	// figure out where the inode is from
 	if (get_inode_info(ino, &par_ino) == NULL) {
-		if (inode_to_tld(ino) != NULL) {
+		if (ino == FUSE_ROOT_ID) {
+			// parent doesn't matter in this case, so just pretend root is
+			// its own parent
+			par_ino = FUSE_ROOT_ID;
+		}
+		else if (inode_to_tld(ino) != NULL) {
 			par_ino = FUSE_ROOT_ID;
 		}
 		else {
