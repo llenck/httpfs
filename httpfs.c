@@ -1,15 +1,17 @@
 #include "fuse-includes.h"
 #include "httpfs-ops.h"
+#include "tree.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 
 const struct fuse_lowlevel_ops httpfs_ops = {
-	.lookup		= httpfs_lookup,
-	.getattr	= httpfs_getattr,
-	.readdir	= httpfs_readdir,
-//	.open		= httpfs_open,
-//	.read		= httpfs_read,
+	.lookup     = httpfs_lookup,
+	.getattr    = httpfs_getattr,
+	.readdir    = httpfs_readdir,
+	.open       = httpfs_open,
+	.read       = httpfs_read,
+	.release    = httpfs_release,
 };
 
 int main(int argc, char *argv[]) {
