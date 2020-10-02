@@ -77,5 +77,8 @@ err_out1:
 	free(opts.mountpoint);
 	fuse_opt_free_args(&args);
 
+	// clean inode to path mapping
+	clean_tree();
+
 	return ret ? 1 : 0;
 }
