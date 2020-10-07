@@ -3,7 +3,7 @@
 #include "fuse-includes.h"
 #include "const-inodes.h"
 #include "tree.h"
-#include "req.h"
+#include "evloop.h"
 
 #include <stdio.h>
 #include <stdint.h>
@@ -19,23 +19,11 @@ void httpfs_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info* fi) {
 		return;
 	}
 
-	struct req_buf* newb = malloc(sizeof(*newb));
+	struct req_buf* newb = create_req(path, par);
 	if (newb == NULL) {
 		fuse_reply_err(req, ENOMEM);
 		return;
 	}
-
-	char* url_copy = strdup(path);
-	if (url_copy == NULL) {
-		fuse_reply_err(req, ENOMEM);
-		free(newb);
-		return;
-	}
-	newb->url = url_copy;
-
-	newb->par_ino = par;
-	newb->resp = NULL;
-	newb->resp_len = 0;
 
 	fi->direct_io = 1;
 	fi->nonseekable = 1;

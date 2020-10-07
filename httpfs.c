@@ -10,8 +10,8 @@ const struct fuse_lowlevel_ops httpfs_ops = {
 	.getattr    = httpfs_getattr,
 	.readdir    = httpfs_readdir,
 	.open       = httpfs_open,
-	.read       = httpfs_read,
-	.release    = httpfs_release,
+//	.read       = httpfs_read,
+//	.release    = httpfs_release,
 };
 
 int main(int argc, char *argv[]) {
