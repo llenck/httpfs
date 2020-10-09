@@ -14,9 +14,11 @@ struct req_buf {
 
 	CURL* easy_handle;
 
+	// request body, if post or put
 	char* body;
 	size_t body_len;
 
+	// response body
 	char* resp;
 	size_t resp_len;
 };
@@ -32,5 +34,12 @@ int start_evloop();
 void stop_evloop();
 
 struct req_buf* create_req(const char* url, fuse_ino_t par_ino);
+
+int send_req(struct req_buf* req);
+
+// del_req frees just the req_buf members in the calling thread, while del_sent_req
+// sends a request to the event loop to stop the request and then use del_req
+void del_req(struct req_buf* req);
+int del_sent_req(struct req_buf* req);
 
 #endif

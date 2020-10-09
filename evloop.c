@@ -58,6 +58,12 @@ static int socket_cb(CURL* easy, curl_socket_t fd, int action, void* u, void* s)
 	(void) s;
 
 	struct epoll_event event;
+
+#ifndef NDEBUG
+	// shut up valgrind
+	memset(&event, 0, sizeof(event));
+#endif
+
 	event.events = 0;
 	event.data.fd = fd;
 
@@ -127,9 +133,9 @@ static int handle_evmsg(struct evmsg* msg) {
 
 		curl_multi_remove_handle(mh, req->easy_handle);
 		curl_easy_cleanup(req->easy_handle);
-		free(req->body);
-		free(req->resp);
-		free(req);
+
+		// free req->{url, body, resp} and req
+		del_req(req);
 	}
 	else {
 		fprintf(stderr, "invalid evloop message type: %hhu\n", msg->type);
@@ -139,17 +145,13 @@ static int handle_evmsg(struct evmsg* msg) {
 	return 0;
 }
 
-// returns 1 if curl was called, 0 if only requests on rqfd_rd were handled, and
-// -1 if the event loop is to exit
+// returns -1 if the event loop is to exit, 0 otherwise
 static int epoll_events_action(struct epoll_event* evs, int num_events,
 		int* running_handles)
 {
-	int curl_called = 0;
-
 	for (int i = 0; i < num_events; i++) {
 		struct epoll_event* ev = &evs[i];
 		if (ev->data.fd != rqfd_rd) {
-			curl_called = 1;
 			curl_multi_socket_action(mh, ev->data.fd,
 					epoll_evmask_to_curl_evmask(ev->events), running_handles);
 		}
@@ -161,6 +163,8 @@ static int epoll_events_action(struct epoll_event* evs, int num_events,
 				abort();
 			}
 
+			printf("Handling evmsg: { %d, %p }\n", msg.type, msg.req);
+
 			if (handle_evmsg(&msg) < 0) {
 				// pass the message that the event loop should exit
 				return -1;
@@ -168,7 +172,7 @@ static int epoll_events_action(struct epoll_event* evs, int num_events,
 		}
 	}
 
-	return curl_called;
+	return 0;
 }
 
 static void* evloop(void* arg) {
@@ -187,6 +191,7 @@ static void* evloop(void* arg) {
 	int running_handles = 0;
 
 	while (1) {
+		printf("Polling w actual timeout of %d (curl-only timeout: %d)\n", actual_timeout, timeout);
 		int res = epoll_wait(efd, evs, 16, actual_timeout);
 		if (res == -1) {
 			epoll_error_action();
@@ -195,6 +200,7 @@ static void* evloop(void* arg) {
 			adjust_timeout(&actual_timeout, &last_time);
 		}
 		else if (res == 0) {
+			printf("Timed out");
 			epoll_timeout_action(&running_handles);
 
 			// we called curl, so reset the timeout
@@ -202,18 +208,15 @@ static void* evloop(void* arg) {
 			actual_timeout = timeout;
 		}
 		else {
+			printf("Got %d events\n", res);
 			int tmp = epoll_events_action(evs, res, &running_handles);
 			if (tmp == -1) {
 				// the main thread wants to clean up the event loop
 				break;
 			}
-
-			if (tmp == 0) {
-				// curl didn't get called, so adjust the timeout
-				adjust_timeout(&actual_timeout, &last_time);
-			}
 			else {
-				// curl got called, so just get the time and reset the actual timeout
+				// curl got called, because the only event that doesn't do so is
+				// EVMSG_EXIT; just get the time and reset the actual timeout
 				get_time(&last_time);
 				actual_timeout = timeout;
 			}
@@ -304,15 +307,15 @@ static size_t save_resp(char* buf, size_t sz, size_t n, void* arg) {
 	size_t total_size = rq->resp_len + new_size;
 
 	// TODO readers/writer lock in rq->lock
-	char* new_body = realloc(rq->body, total_size);
-	if (new_body == NULL) {
+	char* new_resp = realloc(rq->resp, total_size);
+	if (new_resp == NULL) {
 		fprintf(stderr, "Warning: stopping transfer because of low memory\n");
 		return 0;
 	}
-	rq->body = new_body;
+	rq->resp = new_resp;
 	rq->resp_len = total_size;
 
-	memcpy(rq->body + old_size, buf, new_size);
+	memcpy(rq->resp + old_size, buf, new_size);
 
 	return new_size;
 }
@@ -321,22 +324,23 @@ static size_t save_resp(char* buf, size_t sz, size_t n, void* arg) {
 //	// TODO
 //}
 
-static int send_add_evmsg(struct req_buf* req) {
-	struct evmsg msg = { EVMSG_ADD_REQ, req };
-	return write(rqfd_wr, &msg, sizeof(msg)) == sizeof(msg)? 0 : -1;
-}
-
 // TODO more error checking
-static void apply_default_curl_opts(struct req_buf* req, fuse_ino_t par_ino) {
+int send_req(struct req_buf* req) {
+	CURL* ch = curl_easy_init();
+	if (ch == NULL) {
+		return -1;
+	}
+	req->easy_handle = ch;
+
 	curl_easy_setopt(req->easy_handle, CURLOPT_URL, req->url);
 	curl_easy_setopt(req->easy_handle, CURLOPT_FOLLOWLOCATION, 1);
 
-	if (par_ino == DELETE_INODE) {
+	if (req->par_ino == DELETE_INODE) {
 		curl_easy_setopt(req->easy_handle, CURLOPT_CUSTOMREQUEST, "DELETE");
 	}
 	// TODO post, put, etc
 
-	if (par_ino == HEAD_INODE) {
+	if (req->par_ino == HEAD_INODE) {
 		curl_easy_setopt(req->easy_handle, CURLOPT_NOBODY, 1L);
 		curl_easy_setopt(req->easy_handle, CURLOPT_HEADERFUNCTION, save_resp);
 		curl_easy_setopt(req->easy_handle, CURLOPT_HEADERDATA, (void*)req);
@@ -345,6 +349,29 @@ static void apply_default_curl_opts(struct req_buf* req, fuse_ino_t par_ino) {
 		curl_easy_setopt(req->easy_handle, CURLOPT_WRITEFUNCTION, save_resp);
 		curl_easy_setopt(req->easy_handle, CURLOPT_WRITEDATA, (void*)req);
 	}
+
+	struct evmsg msg = { EVMSG_ADD_REQ, req };
+
+	if (write(rqfd_wr, &msg, sizeof(msg)) != sizeof(msg)) {
+		// sending the request failed, so clean the handle up
+		curl_easy_cleanup(req->easy_handle);
+		return -1;
+	}
+
+	return 0;
+}
+
+void del_req(struct req_buf* req) {
+	free(req->url);
+	free(req->resp);
+	free(req->body);
+	free(req);
+}
+
+int del_sent_req(struct req_buf* req) {
+	struct evmsg msg = { EVMSG_DEL_REQ, req };
+
+	return write(rqfd_wr, &msg, sizeof(msg)) == sizeof(msg)? 0 : -1;
 }
 
 struct req_buf* create_req(const char* url, fuse_ino_t par_ino) {
@@ -356,7 +383,8 @@ struct req_buf* create_req(const char* url, fuse_ino_t par_ino) {
 	// TODO url decode instead of just duplicating
 	char* url_copy = strdup(url);
 	if (url_copy == NULL) {
-		goto err_clean_newb;
+		free(newb);
+		return NULL;
 	}
 	newb->url = url_copy;
 
@@ -367,39 +395,5 @@ struct req_buf* create_req(const char* url, fuse_ino_t par_ino) {
 	newb->resp = NULL;
 	newb->resp_len = 0;
 
-	switch (par_ino) {
-	case GET_INODE:
-	case HEAD_INODE:
-	case DELETE_INODE:
-	{
-		CURL* ch = curl_easy_init();
-		if (ch == NULL) {
-			goto err_clean_url;
-		}
-		newb->easy_handle = ch;
-
-		apply_default_curl_opts(newb, par_ino);
-
-		if (send_add_evmsg(newb) < 0) {
-			goto err_clean_curl;
-		}
-
-		break;
-	}
-
-	default:
-		fprintf(stderr, "Unknown/unimplemented parent ino, ignoring request\n");
-		goto err_clean_url;
-		break;
-	}
-
 	return newb;
-
-err_clean_curl:
-	curl_easy_cleanup(newb->easy_handle);
-err_clean_url:
-	free(newb->url);
-err_clean_newb:
-	free(newb);
-	return NULL;
 }
