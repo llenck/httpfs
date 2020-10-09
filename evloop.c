@@ -324,6 +324,10 @@ static size_t save_resp(char* buf, size_t sz, size_t n, void* arg) {
 //	// TODO
 //}
 
+size_t noop(char* buf, size_t sz, size_t n, void* arg) {
+	return sz * n;
+}
+
 // TODO more error checking
 int send_req(struct req_buf* req) {
 	CURL* ch = curl_easy_init();
@@ -344,6 +348,7 @@ int send_req(struct req_buf* req) {
 		curl_easy_setopt(req->easy_handle, CURLOPT_NOBODY, 1L);
 		curl_easy_setopt(req->easy_handle, CURLOPT_HEADERFUNCTION, save_resp);
 		curl_easy_setopt(req->easy_handle, CURLOPT_HEADERDATA, (void*)req);
+		curl_easy_setopt(req->easy_handle, CURLOPT_WRITEFUNCTION, noop);
 	}
 	else {
 		curl_easy_setopt(req->easy_handle, CURLOPT_WRITEFUNCTION, save_resp);
