@@ -48,7 +48,7 @@ static void adjust_timeout(int* timeout, struct timespec* last) {
 int efd;
 int rqfd_rd;
 int rqfd_wr;
-int timeout = -1;
+int timeout;
 CURLM* mh;
 pthread_t evloop_handle;
 
@@ -192,6 +192,7 @@ static void* evloop(void* arg) {
 
 	while (1) {
 		printf("Polling w actual timeout of %d (curl-only timeout: %d)\n", actual_timeout, timeout);
+
 		int res = epoll_wait(efd, evs, 16, actual_timeout);
 		if (res == -1) {
 			epoll_error_action();
@@ -200,12 +201,29 @@ static void* evloop(void* arg) {
 			adjust_timeout(&actual_timeout, &last_time);
 		}
 		else if (res == 0) {
-			printf("Timed out");
 			epoll_timeout_action(&running_handles);
 
 			// we called curl, so reset the timeout
 			get_time(&last_time);
 			actual_timeout = timeout;
+
+			if (timeout == 0) {
+				// in some weird cases, curl forgets to call the timer callback after
+				// setting a timeout of 0, causing 100% cpu usage because epoll never
+				// waits. check for that, and set the timeout to a few hundred ms if
+				// that is what happened (we can't just use the timeout from
+				// curl_multi_timeout directly because curl is dumb and can have
+				// -1 there even if a smaller timeout would be right).
+
+				// the || is intentional btw; if curl doesn't know its own timeout,
+				// better set a medium length one
+				long int prop_timeout;
+				if (curl_multi_timeout(mh, &prop_timeout) != CURLM_OK
+						|| prop_timeout == -1)
+				{
+					timeout = 500;
+				}
+			}
 		}
 		else {
 			printf("Got %d events\n", res);
@@ -281,6 +299,8 @@ int start_evloop() {
 	curl_multi_setopt(mh, CURLMOPT_SOCKETFUNCTION, socket_cb);
 	curl_multi_setopt(mh, CURLMOPT_TIMERFUNCTION, timer_cb);
 
+	timeout = -1;
+
 	if (pthread_create(&evloop_handle, NULL, evloop, NULL) != 0) {
 		goto err_multi_cleanup;
 	}
@@ -325,6 +345,8 @@ static size_t save_resp(char* buf, size_t sz, size_t n, void* arg) {
 //}
 
 size_t noop(char* buf, size_t sz, size_t n, void* arg) {
+	(void) buf;
+	(void) arg;
 	return sz * n;
 }
 
