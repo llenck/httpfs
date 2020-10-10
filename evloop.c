@@ -163,8 +163,6 @@ static int epoll_events_action(struct epoll_event* evs, int num_events,
 				abort();
 			}
 
-			printf("Handling evmsg: { %d, %p }\n", msg.type, msg.req);
-
 			if (handle_evmsg(&msg) < 0) {
 				// pass the message that the event loop should exit
 				return -1;
@@ -191,8 +189,6 @@ static void* evloop(void* arg) {
 	int running_handles = 0;
 
 	while (1) {
-		printf("Polling w actual timeout of %d (curl-only timeout: %d)\n", actual_timeout, timeout);
-
 		int res = epoll_wait(efd, evs, 16, actual_timeout);
 		if (res == -1) {
 			epoll_error_action();
@@ -226,7 +222,6 @@ static void* evloop(void* arg) {
 			}
 		}
 		else {
-			printf("Got %d events\n", res);
 			int tmp = epoll_events_action(evs, res, &running_handles);
 			if (tmp == -1) {
 				// the main thread wants to clean up the event loop
