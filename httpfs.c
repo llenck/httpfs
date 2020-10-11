@@ -22,6 +22,11 @@ int main(int argc, char *argv[]) {
 	struct fuse_loop_config config;
 	int ret = -1;
 
+	if (init_tree() < 0) {
+		printf("Failed to init locks for the inode-path-map tree\n");
+		return 1;
+	}
+
 	if (start_evloop() < 0) {
 		printf("Failed to start the event loop\n");
 		return 1;

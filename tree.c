@@ -9,7 +9,7 @@ struct node* tree = NULL;
 struct node* ll_start = NULL, * ll_end = NULL;
 int node_count = 0;
 
-pthread_mutex_t tree_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_rwlock_t tree_lock;
 
 static void replace_parent_ptr(struct node* nod, struct node* new) {
 	struct node* par = nod->parent;
@@ -214,21 +214,21 @@ int save_url(const char* url, fuse_ino_t* out, fuse_ino_t parent_ino) {
 	new_nod->parent_inode = parent_ino;
 	new_nod->del_at = time(NULL) + 1200; // delete mapping after 20 minutes
 
-	pthread_mutex_lock(&tree_mutex);
+	pthread_rwlock_wrlock(&tree_lock);
 
 	// insert to the binary tree first, because that can fail, while the linked
 	// list append always succeeds
 	int tmp = insert_to_bintree(new_nod);
 	if (tmp < 0) {
 		// hash collision; clean up and return an error
-		pthread_mutex_unlock(&tree_mutex);
+		pthread_rwlock_unlock(&tree_lock);
 
 		ret = -1;
 		goto full_cleanup;
 	}
 	else if (tmp > 0) {
 		// duplicate entry; clean up, but set *out and don't return any error
-		pthread_mutex_unlock(&tree_mutex);
+		pthread_rwlock_unlock(&tree_lock);
 
 		if (out != NULL) {
 			*out = new_nod->inode;
@@ -242,7 +242,7 @@ int save_url(const char* url, fuse_ino_t* out, fuse_ino_t parent_ino) {
 
 	node_count++;
 
-	pthread_mutex_unlock(&tree_mutex);
+	pthread_rwlock_unlock(&tree_lock);
 
 	if (out != NULL) {
 		*out = new_nod->inode;
@@ -259,13 +259,13 @@ nod_cleanup:
 }
 
 const char* get_inode_info(fuse_ino_t inode, fuse_ino_t* par_ino_out) {
-	pthread_mutex_lock(&tree_mutex);
+	pthread_rwlock_rdlock(&tree_lock);
 
 	struct node* t = tree;
 
 	while (t) {
 		if (t->inode == inode) {
-			pthread_mutex_unlock(&tree_mutex);
+			pthread_rwlock_unlock(&tree_lock);
 
 			*par_ino_out = t->parent_inode;
 			return t->url;
@@ -278,13 +278,13 @@ const char* get_inode_info(fuse_ino_t inode, fuse_ino_t* par_ino_out) {
 		}
 	}
 
-	pthread_mutex_unlock(&tree_mutex);
+	pthread_rwlock_unlock(&tree_lock);
 
 	return NULL;
 }
 
 void clean_old_nodes() {
-	pthread_mutex_lock(&tree_mutex);
+	pthread_rwlock_wrlock(&tree_lock);
 
 	time_t now = time(NULL);
 	while (ll_start != NULL && ll_start->del_at < now) {
@@ -292,11 +292,36 @@ void clean_old_nodes() {
 		delete_node(ll_start);
 	}
 
-	pthread_mutex_unlock(&tree_mutex);
+	pthread_rwlock_unlock(&tree_lock);
+}
+
+int init_tree() {
+	int ret = 0;
+
+	pthread_rwlockattr_t at;
+	if (pthread_rwlockattr_init(&at) != 0) {
+		return -1;
+	}
+
+	if (pthread_rwlockattr_setkind_np(&at,
+				PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP) != 0)
+	{
+		ret = -1;
+		goto clean_at;
+	}
+
+	if (pthread_rwlock_init(&tree_lock, &at) != 0) {
+		ret = -1;
+		goto clean_at;
+	}
+
+clean_at:
+	pthread_rwlockattr_destroy(&at);
+	return ret;
 }
 
 void clean_tree() {
-	pthread_mutex_lock(&tree_mutex);
+	pthread_rwlock_wrlock(&tree_lock);
 
 	for (struct node* cur = ll_start; cur != NULL; ) {
 		struct node* next = cur->next;
@@ -311,7 +336,7 @@ void clean_tree() {
 	ll_end = NULL;
 	tree = NULL;
 
-	pthread_mutex_unlock(&tree_mutex);
+	pthread_rwlock_unlock(&tree_lock);
 }
 
 #ifndef NDEBUG

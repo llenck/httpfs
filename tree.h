@@ -30,6 +30,7 @@ const char* get_inode_info(fuse_ino_t inode, fuse_ino_t* par_ino_out);
 
 void clean_old_nodes();
 
+int init_tree();
 void clean_tree();
 
 #ifndef NDEBUG

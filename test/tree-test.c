@@ -5,6 +5,8 @@
 #include <stdio.h>
 
 int main() {
+	assert(init_tree() == 0);
+
 	assert(save_url("test", NULL, 1) == 0);
 	assert(save_url("test2", NULL, 1) == 0);
 	assert(save_url("bruh", NULL, 1) == 0);
