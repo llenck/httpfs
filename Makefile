@@ -4,7 +4,13 @@ CURL_LIBS := -lcurl
 OBJECT_FILES := httpfs.o tree.o const-inode-parsing.o stat.o read.o evloop.o
 HEADER_FILES := httpfs-ops.h tree.h const-inodes.h evloop.h fuse-includes.h
 
-CFLAGS ?= -Wall -Wextra -O3 -DNDEBUG
+CFLAGS ?= -Wall -Wextra
+
+release : CFLAGS += -O3 -DNDEBUG
+release: httpfs
+
+debug : CFLAGS += -Og -g
+debug: httpfs
 
 httpfs: $(OBJECT_FILES) $(HEADER_FILES)
 	$(CC) $(CFLAGS) $(FUSE_LIBS) $(CURL_LIBS) $(OBJECT_FILES) -o httpfs
