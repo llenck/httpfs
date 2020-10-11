@@ -380,6 +380,8 @@ int send_req(struct req_buf* req) {
 		return -1;
 	}
 
+	req->sent = 1;
+
 	return 0;
 }
 

@@ -3,6 +3,7 @@
 #include "fuse-includes.h"
 #include "const-inodes.h"
 #include "tree.h"
+#include "safe-macros.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -135,11 +136,6 @@ static int dirbuf_add(fuse_req_t req, struct dirbuf* b, const char* name,
 
 	return 0;
 }
-
-#define MIN(a, b) ({ \
-	__auto_type _a = a; __auto_type _b = b; \
-	_a < _b? _a : _b; \
-})
 
 void httpfs_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
 	struct fuse_file_info* fi)

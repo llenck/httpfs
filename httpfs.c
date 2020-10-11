@@ -1,6 +1,7 @@
 #include "fuse-includes.h"
 #include "httpfs-ops.h"
 #include "tree.h"
+#include "evloop.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,8 +11,8 @@ const struct fuse_lowlevel_ops httpfs_ops = {
 	.getattr    = httpfs_getattr,
 	.readdir    = httpfs_readdir,
 	.open       = httpfs_open,
-//	.read       = httpfs_read,
-//	.release    = httpfs_release,
+	.read       = httpfs_read,
+	.release    = httpfs_release,
 };
 
 int main(int argc, char *argv[]) {
@@ -21,9 +22,14 @@ int main(int argc, char *argv[]) {
 	struct fuse_loop_config config;
 	int ret = -1;
 
+	if (start_evloop() < 0) {
+		printf("Failed to start the event loop\n");
+		return 1;
+	}
+
 	if (fuse_parse_cmdline(&args, &opts) != 0) {
 		printf("Failed to parse command line\n");
-		return 1;
+		goto err_out0;
 	}
 
 	if (opts.show_help) {
@@ -77,6 +83,9 @@ err_out1:
 	free(opts.mountpoint);
 	fuse_opt_free_args(&args);
 
+err_out0:
+	// stop event loop
+	stop_evloop();
 	// clean inode to path mapping
 	clean_tree();
 
