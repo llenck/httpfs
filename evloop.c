@@ -6,6 +6,10 @@
 #include "fuse-includes.h"
 #include "const-inodes.h"
 
+#ifndef WITHOUT_TREE
+#include "tree.h"
+#endif
+
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -234,6 +238,11 @@ static void* evloop(void* arg) {
 				actual_timeout = timeout;
 			}
 		}
+
+		// make it possible to unit test the event loop without compiling the tree in
+#ifndef WITHOUT_TREE
+		clean_old_nodes();
+#endif
 	}
 
 	return NULL;

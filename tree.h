@@ -35,6 +35,9 @@ void clean_tree();
 
 #ifndef NDEBUG
 
+// this should only be visible to the outside for testing
+int refresh_inode(fuse_ino_t inode);
+
 void print_tree();
 
 #endif

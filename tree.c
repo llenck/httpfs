@@ -5,6 +5,8 @@
 #include <time.h>
 #include <pthread.h>
 
+#define NODE_TIMEOUT 1200
+
 struct node* tree = NULL;
 struct node* ll_start = NULL, * ll_end = NULL;
 int node_count = 0;
@@ -164,6 +166,24 @@ static void delete_node(struct node* nod) {
 	node_count--;
 }
 
+static struct node* search_node(fuse_ino_t ino) {
+	struct node* t = tree;
+
+	while (t) {
+		if (t->inode == ino) {
+			return t;
+		}
+		else if (t->inode > ino) {
+			t = t->left;
+		}
+		else {
+			t = t->right;
+		}
+	}
+
+	return NULL;
+}
+
 static fuse_ino_t xorshift_step(fuse_ino_t in) {
 	in ^= in << 13;
 	in ^= in >> 17;
@@ -212,7 +232,7 @@ int save_url(const char* url, fuse_ino_t* out, fuse_ino_t parent_ino) {
 
 	new_nod->inode = hash_url((const unsigned char*)url);
 	new_nod->parent_inode = parent_ino;
-	new_nod->del_at = time(NULL) + 1200; // delete mapping after 20 minutes
+	new_nod->del_at = time(NULL) + NODE_TIMEOUT; // delete mapping after 20 minutes
 
 	pthread_rwlock_wrlock(&tree_lock);
 
@@ -258,29 +278,60 @@ nod_cleanup:
 	return ret;
 }
 
-const char* get_inode_info(fuse_ino_t inode, fuse_ino_t* par_ino_out) {
-	pthread_rwlock_rdlock(&tree_lock);
+// not static to make testing easier
+int refresh_inode(fuse_ino_t inode) {
+	// we have to redo the search because I couldn't find a way to do upgrade to a
+	// rw lock without some race conditions with multiple threads running this function
+	// close to each other on the same inode
+	pthread_rwlock_wrlock(&tree_lock);
 
-	struct node* t = tree;
+	struct node* t = search_node(inode);
 
-	while (t) {
-		if (t->inode == inode) {
-			pthread_rwlock_unlock(&tree_lock);
-
-			*par_ino_out = t->parent_inode;
-			return t->url;
-		}
-		else if (t->inode > inode) {
-			t = t->left;
-		}
-		else {
-			t = t->right;
-		}
+	if (t == NULL) {
+		pthread_rwlock_unlock(&tree_lock);
+		return -1;
 	}
+
+	delete_from_ll(t);
+	append_to_ll(t);
 
 	pthread_rwlock_unlock(&tree_lock);
 
-	return NULL;
+	return 0;
+}
+
+const char* get_inode_info(fuse_ino_t inode, fuse_ino_t* par_ino_out) {
+	pthread_rwlock_rdlock(&tree_lock);
+
+	struct node* t = search_node(inode);
+	if (t == NULL) {
+		pthread_rwlock_unlock(&tree_lock);
+
+		return NULL;
+	}
+
+	*par_ino_out = t->parent_inode;
+
+	// this needs to be unlocked before we can call refresh_inode, or we
+	// deadlock ourselves
+	pthread_rwlock_unlock(&tree_lock);
+
+	// if this node was about to be deleted, refresh its timeout.
+	time_t now = time(NULL);
+	if (t->del_at < now + NODE_TIMEOUT / 2) {
+		if (refresh_inode(inode) < 0) {
+			// we were too late :(
+			return NULL;
+		}
+	}
+
+	// there is a slight race condition here; if we didn't manage to refresh
+	// this node, and the event loop deleted it, or the caller of this function
+	// uses the url for too long and it the node gets deleted, the pointer we
+	// return becomes dangling. this shouldn't really happen in practice though.
+	// a fix would be to return a strdup()ed string, but that would be something
+	// that would happen in practice, with a real cost; // TODO reevaluate
+	return t->url;
 }
 
 void clean_old_nodes() {
