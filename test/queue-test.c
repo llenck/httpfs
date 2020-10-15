@@ -3,40 +3,24 @@
 #include <assert.h>
 #include <stdio.h>
 
+struct tuple {
+	int a, b;
+};
+
+struct tuple nums[] = { {0, 10}, {10, 0}, {5, 5}, {3, 5}, {10, 10}, {69, 17}, {5, 6} };
+
 int main() {
 	struct req_queue queue;
 	init_queue(&queue);
 
-	struct read_req rr = { 0, 10, 0, NULL };
-	assert(submit_req(&queue, &rr) == 0);
+	struct read_req rr = { 0 };
 
-	rr.off = 0;
-	rr.n = 10;
-	assert(submit_req(&queue, &rr) == 0);
-
-	rr.off = 3;
-	rr.n = 5;
-	assert(submit_req(&queue, &rr) == 0);
-
-	rr.off = 10;
-	rr.n = 0;
-	assert(submit_req(&queue, &rr) == 0);
-
-	rr.off = 10;
-	rr.n = 10;
-	assert(submit_req(&queue, &rr) == 0);
-
-	rr.off = 69;
-	rr.n = 17;
-	assert(submit_req(&queue, &rr) == 0);
-
-	rr.off = 1;
-	rr.n = 100;
-	assert(submit_req(&queue, &rr) == 0);
-
-	rr.off = 5;
-	rr.n = 6;
-	assert(submit_req(&queue, &rr) == 0);
+	// insert some elements before printing
+	for (int i = 0; i < sizeof(nums) / sizeof(struct tuple); i++) {
+		rr.off =  nums[i].a;
+		rr.n =  nums[i].b;
+		assert(submit_req(&queue, &rr) == 0);
+	}
 
 	print_queue(&queue);
 
