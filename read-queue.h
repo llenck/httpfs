@@ -28,8 +28,11 @@ struct req_queue {
 };
 
 int submit_req(struct req_queue* queue, struct read_req* in);
-void peep_req(struct req_queue* queue, struct read_req* out);
-void pop_req(struct req_queue* queue, struct read_req* out);
+
+// these only fail (return -1) if queue->used == 0
+int peep_req(struct req_queue* queue, struct read_req* out);
+int pop_req(struct req_queue* queue, struct read_req* out);
+
 void init_queue(struct req_queue* queue);
 void destroy_queue(struct req_queue* queue);
 

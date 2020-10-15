@@ -2,6 +2,7 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 
 struct tuple {
 	int a, b;
@@ -15,12 +16,32 @@ int main() {
 
 	struct read_req rr = { 0 };
 
+	struct read_req min = { ~0, ~0, ~0, NULL };
+
 	// insert some elements before printing
 	for (int i = 0; i < sizeof(nums) / sizeof(struct tuple); i++) {
-		rr.off =  nums[i].a;
-		rr.n =  nums[i].b;
+		struct tuple* cur = &nums[i];
+		rr.off = cur->a;
+		rr.n =  cur->b;
 		assert(submit_req(&queue, &rr) == 0);
+
+		size_t end = cur->a + cur->b;
+		if (end < min.end) {
+			min.off = cur->a;
+			min.n = cur->b;
+			min.end = end;
+		}
 	}
+
+	assert(peep_req(&queue, &rr) == 0);
+
+	// using memcmp this way is probably struct packing dependent, but since
+	// sizeof(struct read_req) == 24 on pretty much all platforms, this should work
+	assert(memcmp(&rr, &min, sizeof(rr)) == 0);
+
+	// check twice
+	assert(peep_req(&queue, &rr) == 0);
+	assert(memcmp(&rr, &min, sizeof(rr)) == 0);
 
 	print_queue(&queue);
 

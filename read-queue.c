@@ -70,6 +70,23 @@ int submit_req(struct req_queue* queue, struct read_req* in) {
 	return 0;
 }
 
+int peep_req(struct req_queue* queue, struct read_req* out) {
+	pthread_mutex_lock(&queue->lock);
+
+	if (queue->used == 0) {
+		return -1;
+	}
+
+	out->off = queue->q->off;
+	out->n = queue->q->n;
+	out->end = queue->q->end;
+	out->req = queue->q->req;
+
+	pthread_mutex_unlock(&queue->lock);
+
+	return 0;
+}
+
 void init_queue(struct req_queue* queue) {
 	// TODO: in prod, pre-allocate 32 or so elements in queue->q
 	queue->q = NULL;
