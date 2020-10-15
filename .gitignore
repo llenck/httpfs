@@ -1,2 +1,5 @@
 *.o
 httpfs
+test/tree-test
+test/queue-test
+test/evloop-test
