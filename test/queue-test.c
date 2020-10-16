@@ -43,6 +43,20 @@ int main() {
 	assert(peep_req(&queue, &rr) == 0);
 	assert(memcmp(&rr, &min, sizeof(rr)) == 0);
 
+	printf("Before popping the top two request:\n");
+	print_queue(&queue);
+
+	// when popping, it we should get min the first time, and another value after
+	assert(pop_req(&queue, &rr) == 0);
+	assert(memcmp(&rr, &min, sizeof(rr)) == 0);
+
+	printf("\nAfter popping the first time:\n");
+	print_queue(&queue);
+
+	assert(pop_req(&queue, &rr) == 0);
+	assert(memcmp(&rr, &min, sizeof(rr)) != 0);
+
+	printf("\nAfter popping twice:\n");
 	print_queue(&queue);
 
 	destroy_queue(&queue);

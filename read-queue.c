@@ -70,6 +70,13 @@ int submit_req(struct req_queue* queue, struct read_req* in) {
 	return 0;
 }
 
+static void raw_peep(struct req_queue* queue, struct read_req* out) {
+	out->off = queue->q->off;
+	out->n = queue->q->n;
+	out->end = queue->q->end;
+	out->req = queue->q->req;
+}
+
 int peep_req(struct req_queue* queue, struct read_req* out) {
 	pthread_mutex_lock(&queue->lock);
 
@@ -77,10 +84,60 @@ int peep_req(struct req_queue* queue, struct read_req* out) {
 		return -1;
 	}
 
-	out->off = queue->q->off;
-	out->n = queue->q->n;
-	out->end = queue->q->end;
-	out->req = queue->q->req;
+	raw_peep(queue, out);
+
+	pthread_mutex_unlock(&queue->lock);
+
+	return 0;
+}
+
+int pop_req(struct req_queue* queue, struct read_req* out) {
+	pthread_mutex_lock(&queue->lock);
+
+	if (queue->used == 0) {
+		return -1;
+	}
+
+	raw_peep(queue, out);
+
+	int cur = 0;
+	int last = queue->used - 1;
+
+	// "free" the last element
+	queue->used--;
+	// TODO: possibly shrink the queue
+
+	// copy values of cur's smaller child up to cur and then set cur to its smaller
+	// child while inserting last at cur wouldn't satisfy the min heap definition
+	while (1) {
+		if (left_child(cur) >= queue->used) {
+			// cur has no children to compare with, insert here
+			break;
+		}
+
+		int smaller_child;
+		if (right_child(cur) >= queue->used) {
+			// use left as smaller child, as there is no right child
+			smaller_child = left_child(cur);
+		}
+		else {
+			// compare the two children
+			smaller_child = queue->q[left_child(cur)].end <
+				queue->q[right_child(cur)].end? left_child(cur) : right_child(cur);
+		}
+
+		if (queue->q[smaller_child].end >= queue->q[last].end) {
+			// there are no smaller children then in this subtree; insert last here
+			break;
+		}
+
+		// smaller_child is smaller than last; copy it to cur, and continue at cur
+		rr_move(queue, cur, smaller_child);
+		cur = smaller_child;
+	}
+
+	// copy last to cur
+	rr_move(queue, cur, last);
 
 	pthread_mutex_unlock(&queue->lock);
 

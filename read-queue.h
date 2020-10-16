@@ -27,6 +27,10 @@ struct req_queue {
 	pthread_mutex_t lock;
 };
 
+// all of these functions copy the read_req; its small enough to be ok, and pointers to
+// elements from the queue would soon become invalid as things are moved around a lot
+
+// in->end is set to in->off + in->n automatically
 int submit_req(struct req_queue* queue, struct read_req* in);
 
 // these only fail (return -1) if queue->used == 0
