@@ -39,6 +39,20 @@ static int can_insert_queue(struct req_queue* queue) {
 	return 0;
 }
 
+static void check_shrink_queue(struct req_queue* queue) {
+	if (queue->used <= queue->cap / 4 && queue->cap > 4) {
+		int new_cap = queue->cap / 4;
+		struct read_req* new_q = realloc(queue->q, sizeof(*new_q) * new_cap);
+		if (new_q == NULL) {
+			// doesn't really matter, just try again next time
+			return;
+		}
+
+		queue->cap = new_cap;
+		queue->q = new_q;
+	}
+}
+
 int submit_req(struct req_queue* queue, struct read_req* in) {
 	pthread_mutex_lock(&queue->lock);
 
@@ -105,7 +119,6 @@ int pop_req(struct req_queue* queue, struct read_req* out) {
 
 	// "free" the last element
 	queue->used--;
-	// TODO: possibly shrink the queue
 
 	// copy values of cur's smaller child up to cur and then set cur to its smaller
 	// child while inserting last at cur wouldn't satisfy the min heap definition
@@ -138,6 +151,10 @@ int pop_req(struct req_queue* queue, struct read_req* out) {
 
 	// copy last to cur
 	rr_move(queue, cur, last);
+
+	// possibly shrink the queue (can only check now because we still need
+	// queue->q[last] to be valid until the last rr_move)
+	check_shrink_queue(queue);
 
 	pthread_mutex_unlock(&queue->lock);
 

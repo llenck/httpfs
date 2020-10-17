@@ -8,7 +8,8 @@ struct tuple {
 	int a, b;
 };
 
-struct tuple nums[] = { {0, 10}, {10, 0}, {5, 5}, {3, 5}, {10, 10}, {69, 17}, {5, 6} };
+struct tuple nums[] = { {0, 10}, {10, 0}, {5, 5}, {3, 5}, {10, 10}, {69, 17}, {5, 6}, {123, 321} };
+int num_pairs = sizeof(nums) / sizeof(*nums);
 
 int main() {
 	struct req_queue queue;
@@ -19,7 +20,7 @@ int main() {
 	struct read_req min = { ~0, ~0, ~0, NULL };
 
 	// insert some elements before printing
-	for (int i = 0; i < sizeof(nums) / sizeof(struct tuple); i++) {
+	for (int i = 0; i < num_pairs; i++) {
 		struct tuple* cur = &nums[i];
 		rr.off = cur->a;
 		rr.n =  cur->b;
@@ -58,6 +59,12 @@ int main() {
 
 	printf("\nAfter popping twice:\n");
 	print_queue(&queue);
+
+	// also pop more elements until the queue should shrink
+	int elements_left = num_pairs - 2;
+	for (int i = 0; i < elements_left - 2; i++) {
+		assert(pop_req(&queue, &rr) == 0);
+	}
 
 	destroy_queue(&queue);
 }
