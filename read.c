@@ -5,6 +5,7 @@
 #include "tree.h"
 #include "evloop.h"
 #include "safe-macros.h"
+#include "read-queue.h"
 
 #include <stdio.h>
 #include <stdint.h>
@@ -70,11 +71,19 @@ void httpfs_read(fuse_req_t req, fuse_ino_t ino, size_t n, off_t off,
 	case DELETE_INODE:
 		// TODO add and lock pthread_rwlock in req_buf
 		if (rqb->resp_len >= (size_t)off + 1) { // off should be positive
-			printf("Answering with %zu bytes\n", MIN(n, rqb->resp_len - off));
 			fuse_reply_buf(req, rqb->resp + off, MIN(n, rqb->resp_len - off));
 		}
+		else if (!__atomic_load_n(&rqb->resp_finished, __ATOMIC_ACQUIRE)) {
+			// if we might receive the bytes requested later, try to submit the request
+			// to the read queue, for this file handle, otherwise answer with ENOMEM
+			lock_queue(&rqb->read_queue);
+			struct read_req rr = { off, n, 0, req };
+			if (submit_req(&rqb->read_queue, &rr) < 0) {
+				fuse_reply_err(req, ENOMEM);
+			}
+			unlock_queue(&rqb->read_queue);
+		}
 		else {
-			// TODO queue the request for the event loop to answer it
 			fuse_reply_buf(req, NULL, 0);
 		}
 		break;

@@ -54,8 +54,6 @@ static void check_shrink_queue(struct req_queue* queue) {
 }
 
 int submit_req(struct req_queue* queue, struct read_req* in) {
-	pthread_mutex_lock(&queue->lock);
-
 	if (can_insert_queue(queue) < 0) {
 		return -1;
 	}
@@ -79,35 +77,29 @@ int submit_req(struct req_queue* queue, struct read_req* in) {
 	queue->q[cur].end = in->end;
 	queue->q[cur].req = in->req;
 
-	pthread_mutex_unlock(&queue->lock);
-
 	return 0;
 }
 
 static void raw_peep(struct req_queue* queue, struct read_req* out) {
-	out->off = queue->q->off;
-	out->n = queue->q->n;
-	out->end = queue->q->end;
-	out->req = queue->q->req;
+	if (out != NULL) {
+		out->off = queue->q->off;
+		out->n = queue->q->n;
+		out->end = queue->q->end;
+		out->req = queue->q->req;
+	}
 }
 
 int peep_req(struct req_queue* queue, struct read_req* out) {
-	pthread_mutex_lock(&queue->lock);
-
 	if (queue->used == 0) {
 		return -1;
 	}
 
 	raw_peep(queue, out);
 
-	pthread_mutex_unlock(&queue->lock);
-
 	return 0;
 }
 
 int pop_req(struct req_queue* queue, struct read_req* out) {
-	pthread_mutex_lock(&queue->lock);
-
 	if (queue->used == 0) {
 		return -1;
 	}
@@ -155,8 +147,6 @@ int pop_req(struct req_queue* queue, struct read_req* out) {
 	// possibly shrink the queue (can only check now because we still need
 	// queue->q[last] to be valid until the last rr_move)
 	check_shrink_queue(queue);
-
-	pthread_mutex_unlock(&queue->lock);
 
 	return 0;
 }

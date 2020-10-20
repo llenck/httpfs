@@ -40,6 +40,9 @@ int pop_req(struct req_queue* queue, struct read_req* out);
 void init_queue(struct req_queue* queue);
 void destroy_queue(struct req_queue* queue);
 
+#define lock_queue(queue) pthread_mutex_lock(&(queue)->lock)
+#define unlock_queue(queue) pthread_mutex_unlock(&(queue)->lock)
+
 #ifndef NDEBUG
 
 void print_queue(struct req_queue* queue);

@@ -3,6 +3,7 @@
 
 #include "fuse-includes.h"
 #include "const-inodes.h"
+#include "read-queue.h"
 
 #include <curl/curl.h>
 
@@ -21,6 +22,13 @@ struct req_buf {
 	// response body
 	char* resp;
 	size_t resp_len;
+
+	// when someone calls read and we don't have enough bytes yet, let the event loop
+	// answer the request later
+	struct req_queue read_queue;
+
+	unsigned char resp_finished; // can't be a bit field because we use gcc atomics on it
+	unsigned char handle_on_multi: 1;
 };
 
 enum evmsg_type { EVMSG_ADD_REQ, EVMSG_DEL_REQ, EVMSG_EXIT };

@@ -5,11 +5,14 @@
 
 #include "fuse-includes.h"
 #include "const-inodes.h"
+#include "read-queue.h"
+#include "safe-macros.h"
 
 #ifndef WITHOUT_TREE
 #include "tree.h"
 #endif
 
+#include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -121,6 +124,22 @@ static void epoll_timeout_action(int* running_handles) {
 	curl_multi_socket_action(mh, CURL_SOCKET_TIMEOUT, 0, running_handles);
 }
 
+static void end_read_queue(struct req_buf* rqb) {
+	__atomic_store_n(&rqb->resp_finished, 1, __ATOMIC_RELEASE);
+
+	// all reads that have off < resp_len should've been answered by now, so answer
+	// to the remaining reads with eof
+	lock_queue(&rqb->read_queue);
+
+	for (int i = 0; i < rqb->read_queue.used; i++) {
+		assert(rqb->read_queue.q[i].off >= rqb->resp_len);
+
+		fuse_reply_buf(rqb->read_queue.q[i].req, NULL, 0);
+	}
+	rqb->read_queue.used = 0;
+	unlock_queue(&rqb->read_queue);
+}
+
 static int handle_evmsg(struct evmsg* msg) {
 	if (msg->type == EVMSG_EXIT) {
 		// tell the caller to tell the event loop to exit
@@ -128,15 +147,17 @@ static int handle_evmsg(struct evmsg* msg) {
 	}
 	else if (msg->type == EVMSG_ADD_REQ) {
 		curl_multi_add_handle(mh, msg->req->easy_handle);
+		msg->req->handle_on_multi = 1;
 	}
 	else if (msg->type == EVMSG_DEL_REQ) {
-		// the other threads should send this only if we are supposed to clean
-		// msg->req up, otherwise, that is, if we are not currently in the process
-		// of making this request, httpfs_release should clean the request up
 		struct req_buf* req = msg->req;
 
-		curl_multi_remove_handle(mh, req->easy_handle);
-		curl_easy_cleanup(req->easy_handle);
+		// we might already have removed this handle after the request finished
+		if (req->handle_on_multi) {
+			curl_multi_remove_handle(mh, req->easy_handle);
+			curl_easy_cleanup(req->easy_handle);
+			end_read_queue(req);
+		}
 
 		// free req->{url, body, resp} and req
 		del_req(req);
@@ -175,6 +196,25 @@ static int epoll_events_action(struct epoll_event* evs, int num_events,
 	}
 
 	return 0;
+}
+
+static void handle_finished_handles() {
+	struct CURLMsg* msg;
+	int tmp; // idk if curl allows a null pointer here
+	(void) tmp;
+	while ((msg = curl_multi_info_read(mh, &tmp)) != NULL) {
+		if (msg->msg == CURLMSG_DONE) {
+			struct req_buf* rqb;
+			assert(curl_easy_getinfo(msg->easy_handle, CURLINFO_PRIVATE, &rqb)
+					== CURLE_OK);
+
+			end_read_queue(rqb);
+
+			rqb->handle_on_multi = 0;
+			curl_multi_remove_handle(mh, rqb->easy_handle);
+			curl_easy_cleanup(rqb->easy_handle);
+		}
+	}
 }
 
 static void* evloop(void* arg) {
@@ -237,6 +277,10 @@ static void* evloop(void* arg) {
 				get_time(&last_time);
 				actual_timeout = timeout;
 			}
+		}
+
+		if (res != -1) {
+			handle_finished_handles();
 		}
 
 		// make it possible to unit test the event loop without compiling the tree in
@@ -330,7 +374,7 @@ static size_t save_resp(char* buf, size_t sz, size_t n, void* arg) {
 	size_t old_size = rq->resp_len;
 	size_t total_size = rq->resp_len + new_size;
 
-	// TODO readers/writer lock in rq->lock
+	// TODO readers/writer lock in rq->lock, released AFTER checking rq->read_queue
 	char* new_resp = realloc(rq->resp, total_size);
 	if (new_resp == NULL) {
 		fprintf(stderr, "Warning: stopping transfer because of low memory\n");
@@ -340,6 +384,26 @@ static size_t save_resp(char* buf, size_t sz, size_t n, void* arg) {
 	rq->resp_len = total_size;
 
 	memcpy(rq->resp + old_size, buf, new_size);
+
+	lock_queue(&rq->read_queue);
+	struct read_req rr;
+	while (1) {
+		if (peep_req(&rq->read_queue, &rr) < 0) {
+			// no pending requests left
+			break;
+		}
+
+		if (rr.off >= total_size) {
+			// most far request has an offset that is still higher than
+			// the last byte we received
+			break;
+		}
+
+		// delete and answer the request returned from peep_req
+		pop_req(&rq->read_queue, NULL);
+		fuse_reply_buf(rr.req, rq->resp + rr.off, MIN(rr.n, rq->resp_len - rr.off));
+	}
+	unlock_queue(&rq->read_queue);
 
 	return new_size;
 }
@@ -364,6 +428,7 @@ int send_req(struct req_buf* req) {
 
 	curl_easy_setopt(req->easy_handle, CURLOPT_URL, req->url);
 	curl_easy_setopt(req->easy_handle, CURLOPT_FOLLOWLOCATION, 1);
+	curl_easy_setopt(req->easy_handle, CURLOPT_PRIVATE, req);
 
 	if (req->par_ino == DELETE_INODE) {
 		curl_easy_setopt(req->easy_handle, CURLOPT_CUSTOMREQUEST, "DELETE");
@@ -395,6 +460,12 @@ int send_req(struct req_buf* req) {
 }
 
 void del_req(struct req_buf* req) {
+	// i don't know whether fuse makes sure to only call release when all reads are
+	// answered; if not, this will trigger on debug builds, so i guess i'll see.
+	assert(req->read_queue.used == 0);
+
+	destroy_queue(&req->read_queue);
+
 	free(req->url);
 	free(req->resp);
 	free(req->body);
@@ -427,6 +498,11 @@ struct req_buf* create_req(const char* url, fuse_ino_t par_ino) {
 	newb->body_len = 0;
 	newb->resp = NULL;
 	newb->resp_len = 0;
+
+	newb->resp_finished = 0;
+	newb->handle_on_multi = 0;
+
+	init_queue(&newb->read_queue);
 
 	return newb;
 }
